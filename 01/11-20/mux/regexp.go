@@ -1,9 +1,12 @@
 package mux
 
 import (
+	"bytes"
+	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -25,6 +28,105 @@ const (
 // used to match a host, a path or a query string.
 func newRouteRegexp(tpl string, typ regexpType, options routeRegexpOptions) (*routeRegexp, error) {
 	idxs, errBraces := braceIndices(tpl)
+	if errBraces != nil {
+		return nil, errBraces
+	}
+	// Backup the original
+	template := tpl
+	// Now let's parse it.
+	defaultPattern := "[^/]+"
+	if typ == regexpTypeQuery {
+		defaultPattern = ".*"
+	} else if typ == regexpTypeHost {
+		defaultPattern = "[^.]+"
+	}
+	// only match strict slash if not matching
+	if typ != regexpTypePath {
+		options.strictSlash = false
+	}
+
+	endSlash := false
+	if options.strictSlash && strings.HasSuffix(tpl, "/") {
+		tpl = tpl[:len(tpl)-1]
+		endSlash = true
+	}
+	varsN := make([]string, len(idxs)/2)
+	varsR := make([]*regexp.Regexp, len(idxs)/2)
+	pattern := bytes.NewBufferString("")
+	pattern.WriteByte('^')
+	reverse := bytes.NewBufferString("")
+	var end int
+	var err error
+	for i := 0; i < len(idxs); i += 2 {
+		raw := tpl[end:idxs[i]]
+		end = idxs[i+1]
+		parts := strings.SplitN(tpl[idxs[i]+1:end-1], ":", 2)
+		name := parts[0]
+		patt := defaultPattern
+		if len(parts) == 2 {
+			patt = parts[1]
+		}
+		// Name or pattern can't be empty
+		if name == "" || patt == "" {
+			return nil, fmt.Errorf("mux: missing name or pattern in %q", tpl[idxs[i]:end])
+		}
+		// Build the regexp pattern.
+		fmt.Fprintf(pattern, "%s(?P<%s>%s)", regexp.QuoteMeta(raw), varGroupName(i/2), patt)
+
+		// Build the reverse template.
+		fmt.Fprintf(reverse, "%s%%s", raw)
+
+		varsN[i/2] = name
+		varsR[i/2], err = regexp.Compile(fmt.Sprintf("^%s$", patt))
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Add the remaining.
+	raw := tpl[end:]
+	pattern.WriteString(regexp.QuoteMeta(raw))
+	if options.strictSlash {
+		pattern.WriteString("[/]?")
+	}
+	if typ == regexpTypeQuery {
+		if queryVal := strings.SplitN(template, "=", 2)[1]; queryVal == "" {
+			pattern.WriteString(defaultPattern)
+		}
+	}
+	if typ != regexpTypePrefix {
+		pattern.WriteByte('$')
+	}
+
+	var wildcardHostPort bool
+	if typ == regexpTypeHost {
+		if !strings.Contains(pattern.String(), ":") {
+			wildcardHostPort = true
+		}
+	}
+	reverse.WriteString(raw)
+	if endSlash {
+		reverse.WriteByte('/')
+	}
+	reg, errCompile := regexp.Compile(pattern.String())
+	if errCompile != nil {
+		return nil, errCompile
+	}
+
+	if reg.NumSubexp() != len(idxs)/2 {
+		panic(fmt.Sprintf("route %s contains capture groups in its regexp. ", template) +
+			"Only non-capturing groups are accepted: e.g. (?:pattern) instead of (pattern)")
+	}
+
+	return &routeRegexp{
+		template:         template,
+		regexpType:       typ,
+		options:          options,
+		regexp:           reg,
+		reverse:          reverse.String(),
+		varsN:            varsN,
+		varsR:            varsR,
+		wildcardHostPort: wildcardHostPort,
+	}, nil
 }
 
 type routeRegexp struct {
@@ -46,7 +148,7 @@ type routeRegexp struct {
 	wildcardHostPort bool
 }
 
-func (r *routeRegexp) getURLquery(req *http.Request) string {
+func (r *routeRegexp) getURLQuery(req *http.Request) string {
 	if r.regexpType != regexpTypeQuery {
 		return ""
 	}
@@ -56,6 +158,74 @@ func (r *routeRegexp) getURLquery(req *http.Request) string {
 		return templateKey + "=" + val
 	}
 	return ""
+}
+
+func findFirstQueryKey(rawQuery, key string) (value string, ok bool) {
+	query := []byte(rawQuery)
+	for len(query) > 0 {
+		foundKey := query
+		if i := bytes.IndexAny(foundKey, "&;"); i >= 0 {
+			foundKey, query = foundKey[:i], foundKey[i+1:]
+		} else {
+			query = query[:0]
+		}
+		if len(foundKey) == 0 {
+			continue
+		}
+		var value []byte
+		if i := bytes.IndexByte(foundKey, '='); i >= 0 {
+			foundKey, value = foundKey[:i], foundKey[i+1:]
+		}
+		if len(foundKey) < len(key) {
+			continue
+		}
+		keyString, err := url.QueryUnescape(string(foundKey))
+		if err != nil {
+			continue
+		}
+		if keyString != key {
+			continue
+		}
+		valueString, err := url.QueryUnescape(string(value))
+		if err != nil {
+			continue
+		}
+		return valueString, true
+	}
+	return "", false
+}
+
+func (r *routeRegexp) matchQueryString(req *http.Request) bool {
+	return r.regexp.MatchString(r.getURLQuery(req))
+}
+
+// braceIndices returns the first level curly brace indices from a string.
+// It returns an error in case of unbalanced braces.
+func braceIndices(s string) ([]int, error) {
+	var level, idx int
+	var idxs []int
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '{':
+			if level++; level == 1 {
+				idx = i
+			}
+		case '}':
+			if level--; level == 0 {
+				idxs = append(idxs, idx, i+1)
+			} else if level < 0 {
+				return nil, fmt.Errorf("mux: unbalanced braces in %q", s)
+			}
+		}
+	}
+	if level != 0 {
+		return nil, fmt.Errorf("mux: unbalanced braces in %q", s)
+	}
+	return idxs, nil
+}
+
+func varGroupName(idx int) string {
+	return "v" + strconv.Itoa(idx)
 }
 
 // routeRegexpGroup groups the route matchers that carry variables.
