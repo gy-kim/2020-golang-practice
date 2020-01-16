@@ -148,6 +148,51 @@ type routeRegexp struct {
 	wildcardHostPort bool
 }
 
+func (r *routeRegexp) Match(req *http.Request, match *RouteMatch) bool {
+	if r.regexpType == regexpTypeHost {
+		host := getHost(req)
+		if r.wildcardHostPort {
+			if i := strings.Index(host, ":"); i != -1 {
+				host = host[:1]
+			}
+		}
+		return r.regexp.MatchString(host)
+	}
+	if r.regexpType == regexpTypeQuery {
+		return r.matchQueryString(req)
+	}
+	path := req.URL.Path
+	if r.options.useEncodedPath {
+		path = req.URL.EscapedPath()
+	}
+	return r.regexp.MatchString(path)
+}
+
+func (r *routeRegexp) url(values map[string]string) (string, error) {
+	urlValues := make([]interface{}, len(r.varsN), len(r.varsN))
+	for k, v := range r.varsN {
+		value, ok := values[v]
+		if !ok {
+			return "", fmt.Errorf("mux: missing route variable %q", v)
+		}
+		if r.regexpType == regexpTypeQuery {
+			value = url.QueryEscape(value)
+		}
+		urlValues[k] = value
+	}
+	rv := fmt.Sprintf(r.reverse, urlValues...)
+	if !r.regexp.MatchString(rv) {
+		for k, v := range r.varsN {
+			if !r.varsR[k].MatchString(values[v]) {
+				return "", fmt.Errorf(
+					"mux: variable %q doesn't match, expected %q", values[v],
+					r.varsR[k].String())
+			}
+		}
+	}
+	return rv, nil
+}
+
 func (r *routeRegexp) getURLQuery(req *http.Request) string {
 	if r.regexpType != regexpTypeQuery {
 		return ""
