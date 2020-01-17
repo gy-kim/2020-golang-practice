@@ -45,7 +45,7 @@ type routeConf struct {
 
 	skipClean bool
 
-	regexp routeRegexGroup
+	regexp routeRegexpGroup
 
 	matchers []matcher
 

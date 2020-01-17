@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -150,3 +151,43 @@ func (r *Route) Methods(methods ...string) *Route {
 // BuildVarsFunc is the function signature used by custom build variable
 // functions (which can modify route variables before a route's URL is built)
 type BuildVarsFunc func(map[string]string) map[string]string
+
+// GetMethods returns the methods the route matches against
+func (r *Route) GetMethods() ([]string, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	for _, m := range r.matchers {
+		if methods, ok := m.(methodMatcher); ok {
+			return []string(methods), nil
+		}
+	}
+	return nil, errors.New("mux: route doesn't have methods")
+}
+
+// GetHostTemplate reteurns the template used to build the route match.
+func (r *Route) GetHostTemplate() (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	if r.regexp.host == nil {
+		return "", errors.New("mux: route doesn't have a host")
+	}
+	return r.regexp.host.template, nil
+}
+
+// prepareVars converts the route variable pairs into a map.
+func (r *Route) prepareVars(paris ...string) (map[string]string, error) {
+	m, err := mapFromPairsToString(paris...)
+	if err != nil {
+		return nil, err
+	}
+	return r.buildVars(m), nil
+}
+
+func (r *Route) buildVars(m map[string]string) map[string]string {
+	if r.buildVarsFunc != nil {
+		m = r.buildVarsFunc(m)
+	}
+	return m
+}
