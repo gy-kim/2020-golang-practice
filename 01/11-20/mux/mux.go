@@ -54,6 +54,34 @@ type routeConf struct {
 	buildVarsFunc BuildVarsFunc
 }
 
+// returns an effective deep copy of `routeConf`
+func copyRouteConf(r routeConf) routeConf {
+	c := r
+
+	if r.regexp.path != nil {
+		c.regexp.path = copyRouteRegexp(r.regexp.path)
+	}
+
+	if r.regexp.host != nil {
+		c.regexp.host = copyRouteRegexp(r.regexp.host)
+	}
+
+	c.regexp.queries = make([]*routeRegexp, 0, len(r.regexp.queries))
+	for _, q := range r.regexp.queries {
+		c.regexp.queries = append(c.regexp.queries, copyRouteRegexp(q))
+	}
+
+	c.matchers = make([]matcher, len(r.matchers))
+	copy(c.matchers, r.matchers)
+
+	return c
+}
+
+func copyRouteRegexp(r *routeRegexp) *routeRegexp {
+	c := *r
+	return &c
+}
+
 // RouteMatch stores information about a matched route.
 type RouteMatch struct {
 	Route   *Route
@@ -106,6 +134,23 @@ func mapFromPairsToString(pairs ...string) (map[string]string, error) {
 	m := make(map[string]string, length/2)
 	for i := 0; i < length; i += 2 {
 		m[pairs[i]] = pairs[i+1]
+	}
+	return m, nil
+}
+
+// mapFromPairsToRegex converts variadic string parameters to a string to regex map.
+func mapFromPairsToRegex(pairs ...string) (map[string]*regexp.Regexp, error) {
+	length, err := checkPairs(pairs...)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]*regexp.Regexp, length/2)
+	for i := 0; i < length; i += 2 {
+		regex, err := regexp.Compile(pairs[i+1])
+		if err != nil {
+			return nil, err
+		}
+		m[pairs[i]] = regex
 	}
 	return m, nil
 }

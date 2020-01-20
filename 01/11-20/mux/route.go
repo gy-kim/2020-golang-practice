@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -73,6 +75,53 @@ func (r *Route) Match(req *http.Request, match *RouteMatch) bool {
 	return true
 }
 
+// GetError returns an error resulted from building the route, if any.
+func (r *Route) GetError() error {
+	return r.err
+}
+
+// BuildOnly sets the route to never match: it is only used to build URLs.
+func (r *Route) BuildOnly() *Route {
+	r.buildOnly = true
+	return r
+}
+
+// Handler sets a handler for the routes.
+func (r *Route) Handler(handler http.Handler) *Route {
+	if r.err == nil {
+		r.handler = handler
+	}
+	return r
+}
+
+// HandlerFunc sets a handler function for the route.
+func (r *Route) HandlerFunc(f func(http.ResponseWriter, *http.Request)) *Route {
+	return r.Handler(http.HandlerFunc(f))
+}
+
+// GetHandler returns the handler for the route, if any.
+func (r *Route) GetHandler() http.Handler {
+	return r.handler
+}
+
+// Name sets the name for the route, used to build URLs.
+// It is an error to call Name more than once on a route.
+func (r *Route) Name(name string) *Route {
+	if r.name != "" {
+		r.err = fmt.Errorf("mux: route already has name %q, can't set %q", r.name, name)
+	}
+	if r.err == nil {
+		r.name = name
+		r.namedRoutes[name] = r
+	}
+	return r
+}
+
+// GetName returns the name for the route, if any.
+func (r *Route) GetName() string {
+	return r.name
+}
+
 // matcher types try to match a request
 type matcher interface {
 	Match(*http.Request, *RouteMatch) bool
@@ -133,6 +182,59 @@ func (r *Route) addRegexpMatcher(tpl string, typ regexpType) error {
 	return nil
 }
 
+// haderMatcher matches the request against header values.
+type headerMatcher map[string]string
+
+func (m headerMatcher) Match(r *http.Request, match *RouteMatch) bool {
+	return matchMapWithString(m, r.Header, true)
+}
+
+// Headers adds a matcher for request header values.
+func (r *Route) Headers(pairs ...string) *Route {
+	if r.err == nil {
+		var headers map[string]string
+		headers, r.err = mapFromPairsToString(pairs...)
+		return r.addMatcher(headerMatcher(headers))
+	}
+	return r
+}
+
+// headerRegexMatcher matches the request
+type headerRegexMatcher map[string]*regexp.Regexp
+
+func (m headerRegexMatcher) Match(r *http.Request, match *RouteMatch) bool {
+	return matchMapWithRegex(m, r.Header, true)
+}
+
+// HeadersRegexp accepts a sequence of key/value pairs, where the value has regex support.
+func (r *Route) HeadersRegexp(pairs ...string) *Route {
+	if r.err == nil {
+		var headers map[string]*regexp.Regexp
+		headers, r.err = mapFromPairsToRegex(pairs...)
+		return r.addMatcher(headerRegexMatcher(headers))
+	}
+	return r
+}
+
+// Host adds a matcher for the URL host.
+func (r *Route) Host(tpl string) *Route {
+	r.err = r.addRegexpMatcher(tpl, regexpTypeHost)
+	return r
+}
+
+// MatcherFunc is the function signature used by custom matchers.
+type MatcherFunc func(*http.Request, *RouteMatch) bool
+
+// Match returns the match for a given request.
+func (m MatcherFunc) Match(r *http.Request, match *RouteMatch) bool {
+	return m(r, match)
+}
+
+// MatcherFunc adds a custom function to be used as request matcher.
+func (r *Route) MatcherFunc(f MatcherFunc) *Route {
+	return r.addMatcher(f)
+}
+
 // methodMatcher matches the requeset against HTTP methods.
 type methodMatcher []string
 
@@ -148,9 +250,159 @@ func (r *Route) Methods(methods ...string) *Route {
 	return r.addMatcher(methodMatcher(methods))
 }
 
+// Path adds a matcher for the URL path.
+func (r *Route) Path(tpl string) *Route {
+	r.err = r.addRegexpMatcher(tpl, regexpTypePath)
+	return r
+}
+
+// PathPrefix adds a matcher for the URL path prefix.
+func (r *Route) PathPrefix(tpl string) *Route {
+	r.err = r.addRegexpMatcher(tpl, regexpTypePrefix)
+	return r
+}
+
+// Queries adds a matcher for URL query values.
+func (r *Route) Queries(pairs ...string) *Route {
+	length := len(pairs)
+	if length%2 != 0 {
+		r.err = fmt.Errorf("mux: number of parameters must be multiple of 2, got %v", pairs)
+		return nil
+	}
+	for i := 0; i < length; i += 2 {
+		if r.err = r.addRegexpMatcher(pairs[i]+"="+pairs[i+1], regexpTypeQuery); r.err != nil {
+			return r
+		}
+	}
+	return r
+}
+
+// schemeMatcher matches the request against URL schemes.
+type schemeMatcher []string
+
+func (m schemeMatcher) Match(r *http.Request, match *RouteMatch) bool {
+	scheme := r.URL.Scheme
+
+	if scheme == "" {
+		if r.TLS == nil {
+			scheme = "http"
+		} else {
+			scheme = "https"
+		}
+	}
+	return matchInArray(m, scheme)
+}
+
+// Schemes adds a matcher for URL schemes.
+func (r *Route) Schemes(schemes ...string) *Route {
+	for k, v := range schemes {
+		schemes[k] = strings.ToLower(v)
+	}
+	if len(schemes) > 0 {
+		r.buildScheme = schemes[0]
+	}
+	return r.addMatcher(schemeMatcher(schemes))
+}
+
 // BuildVarsFunc is the function signature used by custom build variable
 // functions (which can modify route variables before a route's URL is built)
 type BuildVarsFunc func(map[string]string) map[string]string
+
+// BuildVarsFunc adds a custom function to be used to modify build variables before a route's URL is built.
+func (r *Route) BuildVarsFunc(f BuildVarsFunc) *Route {
+	if r.buildVarsFunc != nil {
+		old := r.buildVarsFunc
+		r.buildVarsFunc = func(m map[string]string) map[string]string {
+			return f(old(m))
+		}
+	} else {
+		r.buildVarsFunc = f
+	}
+	return r
+}
+
+// Subrouter creates a subrouter for the route.
+func (r *Route) Subrouter() *Route {
+	router := &Router{routeConf: copyRouteConf(r.routeConf), namedRoutes: r.namedRoutes}
+	r.addMatcher(router)
+	return router
+}
+
+// URL builds a URL for the route.
+func (r *Route) URL(pairs ...string) (*url.URL, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	values, err := r.prepareVars(pairs...)
+	if err != nil {
+		return nil, err
+	}
+	var scheme, host, path string
+	queries := make([]string, 0, len(r.regexp.queries))
+	if r.regexp.host != nil {
+		if host, err = r.regexp.host.url(values); err != nil {
+			return nil, err
+		}
+		scheme = "http"
+		if r.buildScheme != "" {
+			scheme = r.buildScheme
+		}
+	}
+	if r.regexp.path != nil {
+		if path, err = r.regexp.path.url(values); err != nil {
+			return nil, err
+		}
+	}
+	for _, q := range r.regexp.queries {
+		var query string
+		if query, err = q.url(values); err != nil {
+			return nil, err
+		}
+		queries = append(queries, query)
+	}
+	return &url.URL{
+		Scheme:   scheme,
+		Host:     host,
+		Path:     path,
+		RawQuery: strings.Join(queries, "&"),
+	}, nil
+}
+
+// URLHost builds the host part of the URL for a route, See route.URL().
+func (r *Route) URLHost(pairs ...string) (*url.URL, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.regexp.host == nil {
+		return nil, errors.New("mux: route doesn't have a host")
+	}
+	values, err := r.prepareVars(pairs...)
+	if err != nil {
+		return nil, err
+	}
+	host, err := r.regexp.host.url(values)
+	if err != nil {
+		return nil, err
+	}
+	u := &url.URL{
+		Scheme: "http",
+		Host:   host,
+	}
+	if r.buildScheme != "" {
+		u.Scheme = r.buildScheme
+	}
+	return u, nil
+}
+
+// func (r *Route) URLPath(pairs ...string) (*url.URL, error) {}
+
+// func (r *Route) GetPathTemplate() (string, error) {}
+
+// func (r *Route) GetPathRegexp() (string, error) {}
+
+// func (r *Route) GetQueriesRegexp()([]string, error) {}
+
+// func (r *Route) GetQueriesTemplates() ([]string, error){}
 
 // GetMethods returns the methods the route matches against
 func (r *Route) GetMethods() ([]string, error) {
