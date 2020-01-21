@@ -394,15 +394,76 @@ func (r *Route) URLHost(pairs ...string) (*url.URL, error) {
 	return u, nil
 }
 
-// func (r *Route) URLPath(pairs ...string) (*url.URL, error) {}
+// URLPath builds the path part of the URL for a route.
+func (r *Route) URLPath(pairs ...string) (*url.URL, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.regexp.path == nil {
+		return nil, errors.New("mux: route doesn't have a path")
+	}
+	values, err := r.prepareVars(pairs...)
+	if err != nil {
+		return nil, err
+	}
+	path, err := r.regexp.path.url(values)
+	if err != nil {
+		return nil, err
+	}
+	return &url.URL{Path: path}, nil
+}
 
-// func (r *Route) GetPathTemplate() (string, error) {}
+// GetPathTemplate returns the template used to build the route match.
+func (r *Route) GetPathTemplate() (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	if r.regexp.path == nil {
+		return "", errors.New("mmux: route doesn't have a path")
+	}
+	return r.regexp.path.template, nil
+}
 
-// func (r *Route) GetPathRegexp() (string, error) {}
+// GetPathRegexp returns the expanded regular expression used to match route path.
+func (r *Route) GetPathRegexp() (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	if r.regexp.path == nil {
+		return "", errors.New("mux: route does not have a path")
+	}
+	return r.regexp.path.regexp.String(), nil
+}
 
-// func (r *Route) GetQueriesRegexp()([]string, error) {}
+// GetQueriesRegexp returns the expanded regular expressions used to match the route queries.
+func (r *Route) GetQueriesRegexp() ([]string, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.regexp.queries == nil {
+		return nil, errors.New("mux: route doesn't have queries")
+	}
+	queries := make([]string, 0, len(r.regexp.queries))
+	for _, query := range r.regexp.queries {
+		queries = append(queries, query.regexp.String())
+	}
+	return queries, nil
+}
 
-// func (r *Route) GetQueriesTemplates() ([]string, error){}
+// GetQueriesTemplates returns the templates used to build the query matching.
+func (r *Route) GetQueriesTemplates() ([]string, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.regexp.queries == nil {
+		return nil, errors.New("mux: route doesn't have queries")
+	}
+	queries := make([]string, 0, len(r.regexp.queries))
+	for _, query := range r.regexp.queries {
+		queries = append(queries, query.template)
+	}
+	return queries, nil
+}
 
 // GetMethods returns the methods the route matches against
 func (r *Route) GetMethods() ([]string, error) {
