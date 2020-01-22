@@ -151,6 +151,140 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	handler.ServeHTTP(w, req)
 }
 
+// Get returns a route registered wih the given name.
+func (r *Router) Get(name string) *Route {
+	return r.namedRoutes[name]
+}
+
+// GetRoute returns a route registered with the given name.
+func (r *Router) GetRoute(name string) *Route {
+	return r.namedRoutes[name]
+}
+
+// SkipClean defines the path cleaning behavior for new routes.
+func (r *Router) SkipClean(value bool) *Router {
+	r.skipClean = value
+	return r
+}
+
+// UseEncodedPath tells the router to match the encoded originla path to the routes.
+func (r *Router) UseEncodedPath() *Router {
+	r.useEncodedPath = true
+	return r
+}
+
+// NewRoute registers an empty route.
+func (r *Router) NewRoute() *Route {
+	route := &Route{routeConf: copyRouteConf(r.routeConf), namedRoutes: r.namedRoutes}
+	r.routes = append(r.routes, route)
+	return route
+}
+
+// Name registers a new route with a name.
+func (r *Router) Name(name string) *Route {
+	return r.NewRoute().Name(name)
+}
+
+// Handle registers a new route with a matcher for the URL path.
+func (r *Router) Handle(path string, handler http.Handler) *Route {
+	return r.NewRoute().Path(path).Handler(handler)
+}
+
+// HandleFunc registers a new route with a matcher for the URL path.
+func (r *Router) HandleFunc(path string, f func(http.ResponseWriter, *http.Request)) *Route {
+	return r.NewRoute().Path(path).HandlerFunc(f)
+}
+
+// Headers registers a new route with a matcher for request header values.
+func (r *Router) Headers(pairs ...string) *Route {
+	return r.NewRoute().Headers(pairs...)
+}
+
+// Host registers a new route with a matcher for the URL host.
+func (r *Router) Host(tpl string) *Route {
+	return r.NewRoute().Host(tpl)
+}
+
+// MatcherFunc registers a new route with custom matcher function.
+func (r *Router) MatcherFunc(f MatcherFunc) *Route {
+	return r.NewRoute().MatcherFunc(f)
+}
+
+// Methods registers a new route with a matcher for HTTP methods.
+func (r *Router) Methods(methods ...string) *Route {
+	return r.NewRoute().Methods(methods...)
+}
+
+// Path registers a new route with a matcher for the URL path.
+func (r *Router) Path(tpl string) *Route {
+	return r.NewRoute().Path(tpl)
+}
+
+// PathPrefix registers a new route with a matcher for the URL path prefix.
+func (r *Router) PathPrefix(tpl string) *Route {
+	return r.NewRoute().PathPrefix(tpl)
+}
+
+// Queries registers a new route with a matcher for URL query values.
+func (r *Router) Queries(pairs ...string) *Route {
+	return r.NewRoute().Queries(pairs...)
+}
+
+// Schemes registers a new route with a matcher for URL schemes.
+func (r *Router) Schemes(schemes ...string) *Route {
+	return r.NewRoute().Schemes(schemes...)
+}
+
+// BuildVarsFunc registers a new route with a custom function for modifying
+// route variables before building a URL.
+func (r *Router) BuildVarsFunc(f BuildVarsFunc) *Route {
+	return r.NewRoute().BuildVarsFunc(f)
+}
+
+// Walk walks the router and all its sub-routers, calling walkFn for each route
+// in the tree. The routes are walked in the order they were added.
+func (r *Router) Walk(walkFn WalkFunc) error {
+	return r.walk(walkFn, []*Route{})
+}
+
+// SkipRouter is used as a return value from WalkFuncs to indicate that the
+// router that walk is about to descend down to should be skipped.
+var SkipRouter = errors.New("skip this router")
+
+// WalkFunc is the type of the function called for each route visited by Walk.
+type WalkFunc func(route *Route, router *Router, ancestors []*Route) error
+
+func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {
+	for _, t := range r.routes {
+		err := walkFn(t, r, ancestors)
+		if err == SkipRouter {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		for _, sr := range t.matchers {
+			if h, ok := sr.(*Router); ok {
+				ancestors = append(ancestors, t)
+				err := h.walk(walkFn, ancestors)
+				if err != nil {
+					return err
+				}
+				ancestors = ancestors[:len(ancestors)-1]
+			}
+		}
+		if h, ok := t.handler.(*Router); ok {
+			ancestors = append(ancestors, t)
+			err := h.walk(walkFn, ancestors)
+			if err != nil {
+				return err
+			}
+			ancestors = ancestors[:len(ancestors)-1]
+		}
+	}
+	return nil
+}
+
 // RouteMatch stores information about a matched route.
 type RouteMatch struct {
 	Route   *Route

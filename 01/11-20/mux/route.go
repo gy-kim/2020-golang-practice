@@ -322,7 +322,7 @@ func (r *Route) BuildVarsFunc(f BuildVarsFunc) *Route {
 }
 
 // Subrouter creates a subrouter for the route.
-func (r *Route) Subrouter() *Route {
+func (r *Route) Subrouter() *Router {
 	router := &Router{routeConf: copyRouteConf(r.routeConf), namedRoutes: r.namedRoutes}
 	r.addMatcher(router)
 	return router
