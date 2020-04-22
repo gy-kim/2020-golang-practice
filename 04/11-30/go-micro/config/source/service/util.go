@@ -3,8 +3,8 @@ package service
 import (
 	"time"
 
-	"github.com/gy-kim/2020-golang-practice/04/11-20/go-micro/config/source"
-	proto "github.com/gy-kim/2020-golang-practice/04/11-20/go-micro/config/source/service/proto"
+	"github.com/gy-kim/2020-golang-practice/04/11-30/go-micro/config/source"
+	proto "github.com/gy-kim/2020-golang-practice/04/11-30/go-micro/config/source/service/proto"
 )
 
 func toChangeSet(c *proto.ChangeSet) *source.ChangeSet {

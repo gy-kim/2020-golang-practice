@@ -3,8 +3,8 @@ package source
 import (
 	"context"
 
-	"github.com/gy-kim/2020-golang-practice/04/11-20/go-micro/config/encoder"
-	"github.com/gy-kim/2020-golang-practice/04/11-20/go-micro/config/encoder/json"
+	"github.com/gy-kim/2020-golang-practice/04/11-30/go-micro/config/encoder"
+	"github.com/gy-kim/2020-golang-practice/04/11-30/go-micro/config/encoder/json"
 )
 
 type Options struct {
