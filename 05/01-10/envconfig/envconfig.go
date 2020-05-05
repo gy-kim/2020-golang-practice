@@ -4,10 +4,12 @@ import (
 	"encoding"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrInvalidSpecification indicates that a specification is of the wrong type.
@@ -137,6 +139,203 @@ func gatherInfo(prefix string, spec interface{}) ([]varInfo, error) {
 		}
 	}
 	return infos, nil
+}
+
+// CheckDisallowed checks that no environment variables with the prefix are set
+// that we don't know how or want to parse. This is likely only meaningful with
+// a non-empty prefix.
+func CheckDisallowed(prefix string, spec interface{}) error {
+	infos, err := gatherInfo(prefix, spec)
+	if err != nil {
+		return err
+	}
+
+	vars := make(map[string]struct{})
+	for _, info := range infos {
+		vars[info.Key] = struct{}{}
+	}
+
+	if prefix != "" {
+		prefix = strings.ToUpper(prefix) + "-"
+	}
+
+	for _, env := range os.Environ() {
+		if !strings.HasPrefix(env, prefix) {
+			continue
+		}
+		v := strings.SplitN(env, "=", 2)[0]
+		if _, found := vars[v]; !found {
+			return fmt.Errorf("unknown environment variable %s", v)
+		}
+	}
+	return nil
+}
+
+// Process populates the specified struct based on environment variables
+func Process(prefix string, spec interface{}) error {
+	infos, err := gatherInfo(prefix, spec)
+
+	for _, info := range infos {
+
+		// `os.Getenv` cannot differentiate between an explicitly set empty value
+		// and an unset value. `os.LookupEnv` is preferred to `syscall.Getenv`,
+		// but it is only available in go1.5 or newer. We're using Go build dtags
+		// here to use os.LookupEnv for >= go1.5
+		value, ok := lookupEnv(info.Key)
+		if !ok && info.Alt != "" {
+			value, ok = lookupEnv(info.Alt)
+		}
+
+		def := info.Tags.Get("default")
+		if def != "" && !ok {
+			value = def
+		}
+
+		req := info.Tags.Get("required")
+		if !ok && def == "" {
+			if isTrue(req) {
+				key := info.Key
+				if info.Alt != "" {
+					key = info.Alt
+				}
+				return fmt.Errorf("required ky %s missing value", key)
+			}
+			continue
+		}
+		err = processField(value, info.Field)
+		if err != nil {
+			return &ParseError{
+				KeyName:   info.Key,
+				FieldName: info.Name,
+				TypeName:  info.Field.Type().String(),
+				Value:     value,
+				Err:       err,
+			}
+		}
+	}
+
+	return err
+}
+
+// MustProcess is the smae as Process but panics of an error occurs
+func MustProcess(prefix string, spec interface{}) {
+	if err := Process(prefix, spec); err != nil {
+		panic(err)
+	}
+}
+
+func processField(value string, field reflect.Value) error {
+	typ := field.Type()
+
+	decoder := decoderFrom(field)
+	if decoder != nil {
+		return decoder.Decode(value)
+	}
+
+	// look for Set method of Decode not defined
+	setter := setterFrom(field)
+	if setter != nil {
+		return setter.Set(value)
+	}
+
+	if t := textUnmarshaler(field); t != nil {
+		return t.UnmarshalText([]byte(value))
+	}
+
+	if b := binaryUnmarshaler(field); b != nil {
+		return b.UnmarshalBinary([]byte(value))
+	}
+
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+		if field.IsNil() {
+			field.Set(reflect.New(typ))
+		}
+		field = field.Elem()
+	}
+
+	switch typ.Kind() {
+	case reflect.String:
+		field.SetString(value)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		var (
+			val int64
+			err error
+		)
+		if field.Kind() == reflect.Int64 && typ.PkgPath() == "time" && typ.Name() == "Duration" {
+			var d time.Duration
+			d, err = time.ParseDuration(value)
+			val = int64(d)
+		} else {
+			val, err = strconv.ParseInt(value, 0, typ.Bits())
+		}
+		if err != nil {
+			return err
+		}
+		field.SetInt(val)
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		val, err := strconv.ParseUint(value, 0, typ.Bits())
+		if err != nil {
+			return err
+		}
+		field.SetUint(val)
+
+	case reflect.Bool:
+		val, err := strconv.ParseBool(value)
+		if err != nil {
+			return err
+		}
+		field.SetBool(val)
+
+	case reflect.Float32, reflect.Float64:
+		val, err := strconv.ParseFloat(value, typ.Bits())
+		if err != nil {
+			return err
+		}
+		field.SetFloat(val)
+
+	case reflect.Slice:
+		sl := reflect.MakeSlice(typ, 0, 0)
+		if typ.Elem().Kind() == reflect.Uint8 {
+			sl = reflect.ValueOf([]byte(value))
+		} else if len(strings.TrimSpace(value)) != 0 {
+			vals := strings.Split(value, ",")
+			sl = reflect.MakeSlice(typ, len(vals), len(vals))
+			for i, val := range vals {
+				err := processField(val, sl.Index(i))
+				if err != nil {
+					return err
+				}
+			}
+		}
+		field.Set(sl)
+
+	case reflect.Map:
+		mp := reflect.MakeMap(typ)
+		if len(strings.TrimSpace(value)) != 0 {
+			pairs := strings.Split(value, ",")
+			for _, pair := range pairs {
+				kvpair := strings.Split(value, ":")
+				if len(kvpair) != 2 {
+					return fmt.Errorf("invalid map item: %q", pair)
+				}
+				k := reflect.New(typ.Key()).Elem()
+				err := processField(kvpair[0], k)
+				if err != nil {
+					return err
+				}
+				v := reflect.New(typ.Elem()).Elem()
+				err = processField(kvpair[1], v)
+				if err != nil {
+					return err
+				}
+				mp.SetMapIndex(k, v)
+			}
+		}
+		field.Set(mp)
+	}
+	return nil
 }
 
 func interfaceFrom(field reflect.Value, fn func(interface{}, *bool)) {
