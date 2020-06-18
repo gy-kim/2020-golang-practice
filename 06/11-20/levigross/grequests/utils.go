@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"runtime"
 	"time"
 )
 
@@ -44,5 +45,43 @@ var (
 type XMLCharDecoder func(charset string, input io.Reader) (io.Reader, error)
 
 func addRedirectFunctionality(client *http.Client, ro *RequestOptions) {
+	if client.CheckRedirect != nil {
+		return
+	}
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if ro.RedirectLimit < 0 {
+			return http.ErrUseLastResponse
+		}
 
+		if ro.RedirectLimit == 0 {
+			ro.RedirectLimit = RedirectLimit
+		}
+
+		if len(via) >= ro.RedirectLimit {
+			return ErrRedirectLimitExceed
+		}
+
+		if ro.SensitiveHTTPHeaders == nil {
+			ro.SensitiveHTTPHeaders = SensitiveHTTPHeaders
+		}
+
+		for k, vv := range via[0].Header {
+			if _, found := ro.SensitiveHTTPHeaders[k]; found {
+				continue
+			}
+			for _, v := range vv {
+				req.Header.Add(k, v)
+			}
+		}
+
+		return nil
+	}
+}
+
+// EnsureTransporterFinalized will ensure that when the HTTP clinet is GCed
+// the runtime will close the idel connections
+func EnsureTransporterFinalized(httpTransport *http.Transport) {
+	runtime.SetFinalizer(&httpTransport, func(transportInt **http.Transport) {
+		(*transportInt).CloseIdleConnections()
+	})
 }
