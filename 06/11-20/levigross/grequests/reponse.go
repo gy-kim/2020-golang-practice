@@ -2,9 +2,12 @@ package grequests
 
 import (
 	"bytes"
+	"encoding/json"
+	"encoding/xml"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
 )
 
 // Response is what is returned to a user when they fire off a request
@@ -65,4 +68,86 @@ func (r *Response) Close() error {
 	io.Copy(ioutil.Discard, r)
 
 	return r.RawResponse.Body.Close()
+}
+
+// DownloadToFile allows you to download the contents of the response to a file
+func (r *Response) DownloadToFile(fileName string) error {
+	if r.Error != nil {
+		return r.Error
+	}
+
+	fd, err := os.Create(fileName)
+
+	if err != nil {
+		return err
+	}
+
+	defer r.Close()
+	defer fd.Close()
+
+	if _, err := io.Copy(fd, r.getInternalReader()); err != nil && err != io.EOF {
+		return err
+	}
+	return nil
+
+}
+
+// getInternalReader because we implement io.ReadCloser and optionally hold a large buffer of the response
+func (r *Response) getInternalReader() io.Reader {
+	if r.internalByteBuffer.Len() != 0 {
+		return r.internalByteBuffer
+	}
+	return r
+}
+
+// XML is a method that will populate a struct that is provided `userStruct` with the XML returned within the response body
+func (r *Response) XML(userStruct interface{}, charsetReader XMLCharDecoder) error {
+	if r.Error != nil {
+		return r.Error
+	}
+
+	xmlDecoder := xml.NewDecoder(r.getInternalReader())
+
+	if charsetReader != nil {
+		xmlDecoder.CharsetReader = charsetReader
+	}
+
+	defer r.Close()
+
+	return xmlDecoder.Decode(&userStruct)
+}
+
+// JSON is a method that will populate a struct that is provided `userStruct` with the JSON returned within the response body
+func (r *Response) JSON(userStruct interface{}) error {
+	if r.Error != nil {
+		return r.Error
+	}
+
+	jsonDecoder := json.NewDecoder(r.getInternalReader())
+	defer r.Close()
+
+	return jsonDecoder.Decode(&userStruct)
+}
+
+func (r *Response) populateRersponseByteBuffer() {
+	// Have I done this already?
+	if r.internalByteBuffer.Len() != 0 {
+		return
+	}
+
+	defer r.Close()
+
+	// Is there any content?
+	if r.RawResponse.ContentLength == 0 {
+		return
+	}
+
+	if r.RawResponse.ContentLength > 0 {
+		r.internalByteBuffer.Grow(int(r.RawResponse.ContentLength))
+	}
+
+	if _, err := io.Copy(r.internalByteBuffer, r); err != nil && err != io.EOF {
+		r.Error = err
+		r.RawResponse.Body.Close()
+	}
 }
