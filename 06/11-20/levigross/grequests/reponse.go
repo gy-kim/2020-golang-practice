@@ -129,7 +129,7 @@ func (r *Response) JSON(userStruct interface{}) error {
 	return jsonDecoder.Decode(&userStruct)
 }
 
-func (r *Response) populateRersponseByteBuffer() {
+func (r *Response) populateResponseByteBuffer() {
 	// Have I done this already?
 	if r.internalByteBuffer.Len() != 0 {
 		return
@@ -150,4 +150,28 @@ func (r *Response) populateRersponseByteBuffer() {
 		r.Error = err
 		r.RawResponse.Body.Close()
 	}
+}
+
+// Bytes returns the response as a byte array
+func (r *Response) Bytes() []byte {
+	if r.Error != nil {
+		return nil
+	}
+
+	r.populateResponseByteBuffer()
+
+	// Are we still empty?
+	if r.internalByteBuffer.Len() == 0 {
+		return nil
+	}
+	return r.internalByteBuffer.Bytes()
+}
+
+// ClearInternalBuffer is a function that will clear the internal buffer that we use to hold the .String() and .Bytes() data.
+func (r *Response) ClearInternalBuffer() {
+	if r == nil || r.internalByteBuffer == nil {
+		return
+	}
+
+	r.internalByteBuffer.Reset()
 }

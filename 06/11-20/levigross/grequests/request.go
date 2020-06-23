@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -66,3 +67,10 @@ type RequestOptions struct {
 
 	LocalAddr *net.TCPAddr
 }
+
+// DoRegularRequest adds generic test functionality
+// func DoRegularRequest(requestVerb, url string, ro *RequestOptions) (*Response, error) {
+// 	return buildResponse(buildRequest(requestVerb, url, ro, nil))
+// }
+
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
