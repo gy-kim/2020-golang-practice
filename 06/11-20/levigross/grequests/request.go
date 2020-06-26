@@ -114,6 +114,16 @@ func escapeQuotes(s string) string {
 // 	}
 // }
 
+func encodePostValues(postValues map[string]string) string {
+	urlValues := &url.Values{}
+
+	for key, value := range postValues {
+		urlValues.Set(key, value)
+	}
+
+	return urlValues.Encode()
+}
+
 func (ro RequestOptions) proxySettings(req *http.Request) (*url.URL, error) {
 	if len(ro.Proxies) == 0 {
 		return http.ProxyFromEnvironment(req)
