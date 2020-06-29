@@ -1,7 +1,9 @@
 package grequests
 
 import (
+	"bytes"
 	"crypto/tls"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -113,6 +115,70 @@ func escapeQuotes(s string) string {
 // 		}
 // 	}
 // }
+
+// func createMultiPartPostRequest(httpMethod, userURL string, ro *RequestOptions) (*http.Request, error) {
+// 	requestBody := &bytes.Buffer{}
+
+// 	multipartWriter := multipart.NewWriter(requestBody)
+
+// 	for i, f := range ro.Files {
+// 		if f.FileContents == nil {
+// 			return nil, errors.New("grequests: Pointer FileContents cannot be nil")
+// 		}
+
+// 		fieldName := f.FieldName
+
+// 		if fieldName == "" {
+// 			if len(ro.Files) > 1 {
+// 				fieldName = strings.Join([]string{"file", strconv.Itoa(i + 1)}, "")
+// 			} else {
+// 				fieldName = "file"
+// 			}
+// 		}
+
+// 		var writer io.Writer
+// 		var err error
+
+// 		if f.FieldName != "" {
+
+// 		}
+// 	}
+// }
+
+func createBasicJSONRequest(httpMethod, userURL string, ro *RequestOptions) (*http.Request, error) {
+	var reader io.Reader
+	switch ro.JSON.(type) {
+	case string:
+		reader = strings.NewReader(ro.JSON.(string))
+	case []byte:
+		reader = bytes.NewReader(ro.JSON.([]byte))
+	default:
+		byteSlice, err := json.Marshal(ro.JSON)
+		if err != nil {
+			return nil, err
+		}
+		reader = bytes.NewReader(byteSlice)
+	}
+
+	req, err := http.NewRequest(httpMethod, userURL, reader)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	return req, nil
+}
+
+func createBasicRequeest(httpMethod, userURL string, ro *RequestOptions) (*http.Request, error) {
+	req, err := http.NewRequest(httpMethod, userURL, strings.NewReader(encodePostValues(ro.Data)))
+
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return req, nil
+}
 
 func encodePostValues(postValues map[string]string) string {
 	urlValues := &url.Values{}
