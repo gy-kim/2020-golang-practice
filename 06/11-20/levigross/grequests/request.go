@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/textproto"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -116,34 +121,71 @@ func escapeQuotes(s string) string {
 // 	}
 // }
 
-// func createMultiPartPostRequest(httpMethod, userURL string, ro *RequestOptions) (*http.Request, error) {
-// 	requestBody := &bytes.Buffer{}
+func createMultiPartPostRequest(httpMethod, userURL string, ro *RequestOptions) (*http.Request, error) {
+	requestBody := &bytes.Buffer{}
 
-// 	multipartWriter := multipart.NewWriter(requestBody)
+	multipartWriter := multipart.NewWriter(requestBody)
 
-// 	for i, f := range ro.Files {
-// 		if f.FileContents == nil {
-// 			return nil, errors.New("grequests: Pointer FileContents cannot be nil")
-// 		}
+	for i, f := range ro.Files {
+		if f.FileContents == nil {
+			return nil, errors.New("grequests: Pointer FileContents cannot be nil")
+		}
 
-// 		fieldName := f.FieldName
+		fieldName := f.FieldName
 
-// 		if fieldName == "" {
-// 			if len(ro.Files) > 1 {
-// 				fieldName = strings.Join([]string{"file", strconv.Itoa(i + 1)}, "")
-// 			} else {
-// 				fieldName = "file"
-// 			}
-// 		}
+		if fieldName == "" {
+			if len(ro.Files) > 1 {
+				fieldName = strings.Join([]string{"file", strconv.Itoa(i + 1)}, "")
+			} else {
+				fieldName = "file"
+			}
+		}
 
-// 		var writer io.Writer
-// 		var err error
+		var writer io.Writer
+		var err error
 
-// 		if f.FieldName != "" {
+		if f.FileMime != "" {
+			if f.FileName == "" {
+				f.FileName = "filename"
+			}
+			h := make(textproto.MIMEHeader)
+			h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes(fieldName), escapeQuotes(f.FileName)))
+			h.Set("Content-Type", f.FileMime)
+			writer, err = multipartWriter.CreatePart(h)
+		} else {
+			writer, err = multipartWriter.CreateFormFile(fieldName, f.FileName)
+		}
 
-// 		}
-// 	}
-// }
+		if err != nil {
+			return nil, err
+		}
+
+		if _, err = io.Copy(writer, f.FileContents); err != nil && err != io.EOF {
+			return nil, err
+		}
+
+		if err := f.FileContents.Close(); err != nil {
+			return nil, err
+		}
+	}
+
+	// Populate the other parts of the form (if there are any)
+	for key, value := range ro.Data {
+		multipartWriter.WriteField(key, value)
+	}
+	if err := multipartWriter.Close(); err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(httpMethod, userURL, requestBody)
+
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", multipartWriter.FormDataContentType())
+	return req, err
+}
 
 func createBasicJSONRequest(httpMethod, userURL string, ro *RequestOptions) (*http.Request, error) {
 	var reader io.Reader
