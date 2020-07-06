@@ -1,0 +1,1 @@
+https://medium.com/@bykovskimichael/dingo-the-dependency-injection-framework-for-go-9b1f1d44c419
