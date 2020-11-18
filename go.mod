@@ -10,6 +10,7 @@ require (
 	github.com/gorilla/websocket v1.4.2
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/micro/go-micro/v2 v2.5.0
+	golang.org/x/crypto v0.0.0-20201117144127-c1f2f97bffc9
 	golang.org/x/net v0.0.0-20200222125558-5a598a2470a0
 	google.golang.org/grpc v1.28.1
 )
