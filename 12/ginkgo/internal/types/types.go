@@ -152,6 +152,6 @@ type FlagType uint
 
 const (
 	FlagTypeNone FlagType = iota
-	FlagTypeFocusted
+	FlagTypeFocused
 	FlagTypePending
 )
