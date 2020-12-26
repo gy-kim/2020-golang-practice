@@ -2,7 +2,9 @@ package suite
 
 import (
 	"github.com/gy-kim/2020-golang-practice/12/ginkgo/internal/containernode"
+	"github.com/gy-kim/2020-golang-practice/12/ginkgo/internal/failer"
 	"github.com/gy-kim/2020-golang-practice/12/ginkgo/internal/leafnodes"
+	"github.com/gy-kim/2020-golang-practice/12/ginkgo/internal/specrunner"
 	"github.com/gy-kim/2020-golang-practice/12/ginkgo/internal/types"
 )
 
@@ -19,10 +21,27 @@ type deferredContainerNode struct {
 
 type Suite struct {
 	topLevelContainer *containernode.ContainerNode
-	currrentContainer *containernode.ContainerNode
+	currentContainer  *containernode.ContainerNode
 
-	deferredContainerNode []deferredContainerNode
+	deferredContainerNodes []deferredContainerNode
 
-	containerIndex  int
-	beforeSuiteNode leafnodes.SuiteNode
+	containerIndex      int
+	beforeSuiteNode     leafnodes.SuiteNode
+	afterSuiteNode      leafnodes.SuiteNode
+	runner              *specrunner.SpecRunner
+	failer              *failer.Failer
+	running             bool
+	expandTopLevelNodes bool
+}
+
+func New(failer *failer.Failer) *Suite {
+	topLevelContainer := containernode.New("[Top Level]", types.FlagTypeNone, types.CodeLocation{})
+
+	return &Suite{
+		topLevelContainer:      topLevelContainer,
+		currentContainer:       topLevelContainer,
+		failer:                 failer,
+		containerIndex:         1,
+		deferredContainerNodes: []deferredContainerNode{},
+	}
 }

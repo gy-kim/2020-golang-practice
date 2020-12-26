@@ -34,6 +34,19 @@ func (f *Failer) Panic(location types.CodeLocation, forwardedPanic interface{}) 
 	}
 }
 
+func (f *Failer) Timeout(location types.CodeLocation) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	if f.state == types.SpecStatePassed {
+		f.state = types.SpecStateTimedOut
+		f.failure = types.SpecFailure{
+			Message:  "Timed out",
+			Location: location,
+		}
+	}
+}
+
 func (f *Failer) Fail(message string, location types.CodeLocation) {
 	f.lock.Lock()
 	defer f.lock.Unlock()

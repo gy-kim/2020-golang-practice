@@ -140,7 +140,7 @@ const (
 	SpecComponentTypeContainer
 	SpecComponentTypeBeforeSuite
 	SpecComponentTypeAfterSuite
-	SpecCompomentTypeBeforeEach
+	SpecComponentTypeBeforeEach
 	SpecComponentTypeJustBeforeEach
 	SpecComponentTypeJustAfterEach
 	SpecComponentTypeAfterEach
