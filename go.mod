@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	flamingo.me/dingo v0.2.9
+	github.com/go-chi/chi v1.5.1 // indirect
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang/protobuf v1.4.0
 	github.com/google/go-querystring v1.0.0
