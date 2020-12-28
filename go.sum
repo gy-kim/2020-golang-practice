@@ -112,6 +112,8 @@ github.com/gliderlabs/ssh v0.2.2/go.mod h1:U7qILu1NlMHj9FlMhZLlkCdDnU1DBEAqr0aev
 github.com/go-acme/lego/v3 v3.3.0/go.mod h1:iGSY2vQrvQs3WezicSB/oVbO2eCrD88dpWPwb1qLqu0=
 github.com/go-chi/chi v1.5.1 h1:kfTK3Cxd/dkMu/rKs5ZceWYp+t5CtiE7vmaTv3LjC6w=
 github.com/go-chi/chi v1.5.1/go.mod h1:REp24E+25iKvxgeTfHmdUoL5x15kBiDBlnIl5bCwe2k=
+github.com/go-chi/valve v0.0.0-20170920024740-9e45288364f4 h1:JYZmrkBDj6LwUbsRysF9tpLnz59npoZSI3KG2XHqvHw=
+github.com/go-chi/valve v0.0.0-20170920024740-9e45288364f4/go.mod h1:F4ZINQr5T71wO1JOmdQsGTBew+njUAXn65LLGjuagwY=
 github.com/go-cmd/cmd v1.0.5/go.mod h1:y8q8qlK5wQibcw63djSl/ntiHUHXHGdCkPk0j4QeW4s=
 github.com/go-errors/errors v1.0.1/go.mod h1:f4zRHt4oKfwPJE5k8C9vpYG+aDHdBFUsgrm6/TyX73Q=
 github.com/go-gl/glfw/v3.3/glfw v0.0.0-20191125211704-12ad95a8df72/go.mod h1:tQ2UAYgL5IevRw8kRxooKSPJfGvJ9fJQFa0TUsXzTg8=
